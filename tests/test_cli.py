@@ -125,6 +125,7 @@ def test_ourmethod_flags_map_to_config(monkeypatch):
         "--normalize_target",
         "--max_target_samples", "1000",
         "--target_batch_size", "64",
+        "--eval_every", "2",
         "--force_recompute",
         "--no_diagnostics",
     )
@@ -142,6 +143,7 @@ def test_ourmethod_flags_map_to_config(monkeypatch):
     assert config.normalize_target is True
     assert config.max_target_samples == 1000
     assert config.target_batch_size == 64
+    assert config.eval_every == 2
     assert config.force_recompute is True
     assert config.diagnostics is False
 
@@ -169,6 +171,22 @@ def test_non_positive_save_every_is_rejected(monkeypatch):
     args = parse_args()
 
     with pytest.raises(ValueError, match="positive integer"):
+        get_config(args.method, args)
+
+
+def test_eval_every_zero_disables_in_training_eval(monkeypatch):
+    config = build_config(monkeypatch, "--method", "ourmethod", "--eval_every", "0")
+
+    assert config.eval_every == 0
+
+
+def test_negative_eval_every_is_rejected(monkeypatch):
+    monkeypatch.setattr(
+        sys, "argv", ["main.py", "--method", "ourmethod", "--eval_every", "-1"]
+    )
+    args = parse_args()
+
+    with pytest.raises(ValueError, match="eval_every"):
         get_config(args.method, args)
 
 

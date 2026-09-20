@@ -8,6 +8,7 @@ import torch
 from torch import nn, optim
 from torch.amp import GradScaler
 
+import distiller as distiller_module
 from config import OurMethodConfig
 from distiller import KnowledgeDistiller
 from src.criterions.our_method import OurMethodDistillation
@@ -93,3 +94,42 @@ def test_train_step_handles_a_single_target_side():
 
     assert torch.isfinite(loss)
     assert "loss_fusion" in metrics
+
+
+def _pair_metric():
+    return {
+        "best_threshold": 0.5,
+        "accuracy": 1.0,
+        "f1": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "average_precision": 1.0,
+    }
+
+
+def test_test_eval_selects_pair_thresholds_when_validation_was_skipped(monkeypatch):
+    obj = KnowledgeDistiller.__new__(KnowledgeDistiller)
+    obj.model_student = nn.Linear(2, 2)
+    obj.tok_student = object()
+    obj.current_epoch = 0
+
+    calls = []
+
+    def fake_pair_task(model, path_list, tokenizer, thresholds=None):
+        calls.append(thresholds)
+        if thresholds is None:
+            return {path: _pair_metric() for path in path_list}, {0: 0.5}
+        return {path: _pair_metric() for path in path_list}, {0: 0.5}
+
+    monkeypatch.setattr(distiller_module, "eval_classification_task", lambda *a, **k: {})
+    monkeypatch.setattr(distiller_module, "eval_sts_task", lambda *a, **k: {})
+    monkeypatch.setattr(distiller_module, "eval_pair_task", fake_pair_task)
+    monkeypatch.setattr(
+        KnowledgeDistiller, "print_evaluation_table", lambda self, split, results: {}
+    )
+
+    KnowledgeDistiller.evaluate(obj, "test")
+
+    assert calls[0] is None  # threshold selection on validation
+    assert calls[1] == {0: 0.5}  # test uses the selected thresholds
+    assert obj.pair_validation_thresholds == {0: 0.5}

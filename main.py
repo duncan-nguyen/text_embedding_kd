@@ -79,6 +79,12 @@ def parse_args():
         help='Save a periodic checkpoint every N epochs (must be positive)'
     )
     parser.add_argument(
+        '--eval_every',
+        type=int,
+        default=None,
+        help='Evaluate validation every N epochs; 0 disables in-training eval (test still runs once)'
+    )
+    parser.add_argument(
         '--lr',
         type=float,
         default=None,
@@ -313,6 +319,10 @@ def get_config(method: str, args):
         if args.save_every <= 0:
             raise ValueError("--save_every must be a positive integer")
         config.save_every = args.save_every
+    if args.eval_every is not None:
+        if args.eval_every < 0:
+            raise ValueError("--eval_every must be >= 0 (0 disables in-training eval)")
+        config.eval_every = args.eval_every
     if args.lr is not None:
         config.learning_rate = args.lr
     if args.max_length is not None:

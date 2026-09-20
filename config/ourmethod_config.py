@@ -39,6 +39,8 @@ class OurMethodConfig(BaseConfig):
     cache_path = "cache/ourmethod/targets.pt"
     force_recompute = False
     target_batch_size = 256
+    free_frozen_models = True
+    allow_tf32 = True
 
     diagnostics = True
     diagnostics_dir = None

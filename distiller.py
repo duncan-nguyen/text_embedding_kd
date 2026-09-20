@@ -56,8 +56,6 @@ from src.data_utils.dataset_cache import (
     TextPairWithTeacher,
 )
 from src.diagnostics import save_ourmethod_diagnostics
-from src.our_method_target import OurMethodTargetBuilder
-
 from src.evaluation.evaluation_automodel import (
     eval_classification_task,
     eval_cls_tasks,
@@ -70,6 +68,7 @@ from src.evaluation.evaluation_automodel import (
     test_sts_tasks,
 )
 from src.loss import info_nce
+from src.our_method_target import OurMethodTargetBuilder
 from src.pooling import last_token_pool
 
 # The distillation corpus (data/train_set/merged_3_data_5k_each.csv) is drawn from
@@ -273,6 +272,12 @@ class KnowledgeDistiller:
         else:
             self.device_s = self.device_t = torch.device("cpu")
             print("[WARN] No GPU -> CPU training")
+
+        if torch.cuda.is_available() and getattr(self.config, "allow_tf32", False):
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.set_float32_matmul_precision("high")
+            print("Enabled TF32 matmul (fp32 forward speedup on Ampere+)")
         print("Done setup_devices")
 
     def setup_wandb(self):
@@ -531,12 +536,15 @@ class KnowledgeDistiller:
                 cfg.task_type,
                 cfg.max_length,
             )
+            raw_workers = getattr(cfg, "num_workers", 0)
             raw_loader = DataLoader(
                 raw_ds,
                 batch_size=getattr(cfg, "target_batch_size", 256),
                 shuffle=False,
                 collate_fn=raw_collate,
-                num_workers=0,
+                pin_memory=True,
+                num_workers=raw_workers,
+                persistent_workers=raw_workers > 0,
             )
             builder = OurMethodTargetBuilder(
                 model_teacher=self.model_teacher,
@@ -558,6 +566,18 @@ class KnowledgeDistiller:
                 f"[OurMethod] fused targets: shape={tuple(fused.targets.shape)}, "
                 f"sides={fused.num_sides}, rank={fused.rank}"
             )
+
+            # The frozen models are only needed to build the target. Releasing
+            # them frees VRAM for a larger student batch.
+            if getattr(cfg, "free_frozen_models", False):
+                del builder
+                del self.model_teacher
+                del self.model_base
+                self.model_teacher = None
+                self.model_base = None
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                print("[OurMethod] freed frozen teacher and base student")
 
             self.train_ds = TextPairWithFusionTarget(df, cfg.task_type, fused.targets)
             self.collate_fn = DualTokenizerCollateWithFusionTarget(
@@ -1639,9 +1659,16 @@ class KnowledgeDistiller:
             sts_tasks = test_sts_tasks
             thresholds = getattr(self, "pair_validation_thresholds", None)
             if thresholds is None:
-                raise RuntimeError(
-                    "Pair test evaluation requires thresholds selected on validation data"
+                # No per-epoch validation ran (eval_every=0), so select the pair
+                # thresholds on the validation pair tasks once before testing.
+                print(
+                    "Selecting pair thresholds on the validation split "
+                    "(eval_every=0 skipped in-training validation)..."
                 )
+                _, thresholds = eval_pair_task(
+                    self.model_student, eval_pair_tasks, self.tok_student
+                )
+                self.pair_validation_thresholds = thresholds
 
         student_model = self.model_student
         classification = eval_classification_task(
@@ -1852,11 +1879,12 @@ class KnowledgeDistiller:
                 avg_loss = self.train_epoch(epoch)
                 validation_results = None
 
-                print("\n" + "=" * 60)
-                print(f"Evaluation after Epoch {epoch + 1}")
-                print("=" * 60)
-
-                if (epoch + 1) % cfg.eval_every == 0:
+                # eval_every == 0 disables validation during training; the final
+                # test evaluation still runs once after the loop.
+                if cfg.eval_every > 0 and (epoch + 1) % cfg.eval_every == 0:
+                    print("\n" + "=" * 60)
+                    print(f"Evaluation after Epoch {epoch + 1}")
+                    print("=" * 60)
                     try:
                         validation_results = self.evaluate("validation")
                         if (
@@ -1871,8 +1899,8 @@ class KnowledgeDistiller:
                     except Exception as e:
                         print(f"Warning: Validation failed with error: {e}")
                         print("Continuing training...")
+                    print("=" * 60 + "\n")
 
-                print("=" * 60 + "\n")
                 self.log_experiment_record(
                     {
                         "train": self.last_epoch_metrics,
