@@ -4,7 +4,12 @@ import pytest
 import torch
 
 from src.data_utils.dataset import DualTokenizerCollate, TextPairRaw
-from src.data_utils.dataset_cache import DualTokenizerCollateWithTeacher, TextPairWithTeacher
+from src.data_utils.dataset_cache import (
+    DualTokenizerCollateWithFusionTarget,
+    DualTokenizerCollateWithTeacher,
+    TextPairWithFusionTarget,
+    TextPairWithTeacher,
+)
 
 
 class FakeTokenizer:
@@ -155,6 +160,45 @@ def test_text_pair_with_teacher_pairs_each_sample_with_its_vector():
 
     assert item == ("bb", "dd")
     assert torch.allclose(vector, teacher[1])
+
+
+def test_text_pair_with_fusion_target_pairs_each_sample_with_its_target():
+    frame = _frame({"premise": ["a", "bb"], "hypothesis": ["c", "dd"], "label": [0, 1]})
+    targets = torch.randn(2, 2, 5)
+    dataset = TextPairWithFusionTarget(frame, "pair_cls", targets)
+
+    item, target = dataset[1]
+
+    assert item == ("bb", "dd", 1)
+    assert torch.allclose(target, targets[1])
+
+
+def test_fusion_collate_emits_student_encodings_and_both_targets(tokenizer):
+    frame = _frame({"premise": ["a", "bb"], "hypothesis": ["c", "dd"], "label": [0, 1]})
+    targets = torch.randn(2, 2, 5)
+    dataset = TextPairWithFusionTarget(frame, "pair_cls", targets)
+    collate = DualTokenizerCollateWithFusionTarget(tokenizer, "pair_cls", max_len=16, num_sides=2)
+
+    batch = collate([dataset[0], dataset[1]])
+
+    assert "input_ids1_stu" in batch and "input_ids2_stu" in batch
+    assert not any(key.endswith("_tea") for key in batch)
+    assert batch["target1"].shape == (2, 5)
+    assert batch["target2"].shape == (2, 5)
+    assert torch.allclose(batch["target2"], targets[:, 1, :])
+    assert batch["labels"].dtype == torch.long
+
+
+def test_fusion_collate_omits_target2_for_a_single_side(tokenizer):
+    frame = _frame({"premise": ["a", "bb"], "hypothesis": ["c", "dd"]})
+    targets = torch.randn(2, 1, 5)
+    dataset = TextPairWithFusionTarget(frame, "pair_cls", targets)
+    collate = DualTokenizerCollateWithFusionTarget(tokenizer, "pair_cls", max_len=16, num_sides=1)
+
+    batch = collate([dataset[0], dataset[1]])
+
+    assert batch["target1"].shape == (2, 5)
+    assert "target2" not in batch
 
 
 def _frame(columns):

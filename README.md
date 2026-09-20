@@ -57,6 +57,7 @@ under `config/`, which supplies the defaults that the CLI flags then override:
 | `rkd` | `config/rkd_config.py` | Relational KD (Park et al., 2019): distance-wise + angle-wise relations |
 | `pkt` | `config/pkt_config.py` | Probabilistic KT (Passalis & Tefas, 2018): conditional affinity distributions |
 | `stella` | `config/stella_config.py` | Stella multi-dimension student heads |
+| `ourmethod` | `config/ourmethod_config.py` | Student-anchored subspace fusion: frozen base student + gated teacher corrections |
 
 `talas` caches the teacher's sentence embeddings once (`cache_path`) and frees
 the teacher model afterwards; the other methods run the teacher alongside the
@@ -81,6 +82,19 @@ released code keeps it) and `reduction` (`sum` is Eq. 8 verbatim, `mean` is the
 released code, `batchmean` is the default per-anchor KL). The paper transfers
 with no supervised term, so `w_task` defaults to `0.0`.
 
+`ourmethod` implements the student-anchored subspace fusion in
+`docs/subspace_fusion_distillation_proposal_v4.md`. A frozen teacher `T` and a
+frozen base student `S0` (a pretrained encoder, also the initialisation of the
+trainable student) are embedded over the corpus; their top-`r` spectral
+subspaces are aligned with orthogonal Procrustes, the teacher is admitted only
+on blocks where it is more stable across two dropout views (linear CKA), and the
+fused target `H* = H0 + (Z~T - Z0) G U0^T` trains the student with a cosine loss
+on top of the usual `info_nce` base objective. Because `T` and `S0` are frozen,
+every stage is computed once and cached (`--cache_path`), so a rerun only loads
+the cache. The offline statistics are logged under `subspace/`, `alignment/`,
+`stability/`, `gate/` and `target/`, and the diagnostic plots land in
+`<save_dir>/diagnostics/`.
+
 Training is single-process. Two visible CUDA devices place the student on
 `cuda:0` and the teacher on `cuda:1`; one device puts both on `cuda:0`.
 
@@ -94,8 +108,8 @@ bash scripts/train_talas.sh
 ```
 
 One script per method lives in `scripts/` (`train_talas.sh`, `train_cdm.sh`,
-`train_dskd.sh`, `train_emo.sh`, `train_pkt.sh`, `train_rkd.sh`, `train_stella.sh`,
-plus `.ps1` equivalents).
+`train_dskd.sh`, `train_emo.sh`, `train_ourmethod.sh`, `train_pkt.sh`,
+`train_rkd.sh`, `train_stella.sh`, plus `.ps1` equivalents).
 
 Or run the Python entry point directly:
 
@@ -110,6 +124,21 @@ python3 main.py \
   --lr 2e-5 \
   --max_length 256 \
   --save_dir models/talas/qwen3_4b_to_bert_base
+```
+
+To run OurMethod with an explicit frozen base student:
+
+```bash
+python3 main.py \
+  --method ourmethod \
+  --train_data data/train_set/merged_3_data_5k_each.csv \
+  --student_model bert-base-uncased \
+  --base_student_model bert-base-uncased \
+  --teacher_model Qwen/Qwen3-Embedding-0.6B \
+  --subspace_rank 64 \
+  --num_blocks 8 \
+  --w_fusion 1.0 \
+  --save_dir models/ourmethod/qwen3_4b_to_bert_base
 ```
 
 To disable W&B:

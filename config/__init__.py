@@ -2,6 +2,7 @@ from .base_config import BaseConfig
 from .cdm_config import CDMConfig
 from .dskd_config import DSKDConfig
 from .emo_config import EMOConfig
+from .ourmethod_config import OurMethodConfig
 from .pkt_config import PKTConfig
 from .rkd_config import RKDConfig
 from .stella_config import StellaConfig
@@ -12,6 +13,7 @@ __all__ = [
     'CDMConfig',
     'DSKDConfig',
     'EMOConfig',
+    'OurMethodConfig',
     'PKTConfig',
     'RKDConfig',
     'StellaConfig',

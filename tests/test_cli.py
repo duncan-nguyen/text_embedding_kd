@@ -8,6 +8,7 @@ from config import (
     CDMConfig,
     DSKDConfig,
     EMOConfig,
+    OurMethodConfig,
     PKTConfig,
     RKDConfig,
     StellaConfig,
@@ -19,6 +20,7 @@ METHOD_CONFIGS = [
     ("cdm", CDMConfig),
     ("dskd", DSKDConfig),
     ("emo", EMOConfig),
+    ("ourmethod", OurMethodConfig),
     ("pkt", PKTConfig),
     ("rkd", RKDConfig),
     ("stella", StellaConfig),
@@ -104,6 +106,44 @@ def test_method_specific_flags(monkeypatch, method, flag, attribute):
 
     expected = "gaussian" if flag == "--pkt_kernel" else 2.5
     assert getattr(config, attribute) == expected
+
+
+def test_ourmethod_flags_map_to_config(monkeypatch):
+    config = build_config(
+        monkeypatch,
+        "--method", "ourmethod",
+        "--base_student_model", "base",
+        "--teacher_pooling", "cls",
+        "--teacher_dtype", "float32",
+        "--subspace_rank", "32",
+        "--num_blocks", "4",
+        "--stability_margin", "0.1",
+        "--stability_tau", "0.2",
+        "--stability_view", "augment",
+        "--target_view", "text1",
+        "--w_fusion", "0.7",
+        "--normalize_target",
+        "--max_target_samples", "1000",
+        "--target_batch_size", "64",
+        "--force_recompute",
+        "--no_diagnostics",
+    )
+
+    assert config.base_student_model_name == "base"
+    assert config.pooling_method == "cls"
+    assert config.teacher_dtype == "float32"
+    assert config.subspace_rank == 32
+    assert config.num_blocks == 4
+    assert config.stability_margin == 0.1
+    assert config.stability_tau == 0.2
+    assert config.stability_view == "augment"
+    assert config.target_view == "text1"
+    assert config.w_fusion == 0.7
+    assert config.normalize_target is True
+    assert config.max_target_samples == 1000
+    assert config.target_batch_size == 64
+    assert config.force_recompute is True
+    assert config.diagnostics is False
 
 
 def test_debug_flag_sets_debug_align(monkeypatch):

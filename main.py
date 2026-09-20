@@ -6,6 +6,7 @@ from config import (
     CDMConfig,
     DSKDConfig,
     EMOConfig,
+    OurMethodConfig,
     PKTConfig,
     RKDConfig,
     StellaConfig,
@@ -23,7 +24,7 @@ def parse_args():
         '--method',
         type=str,
         default='cdm',
-        choices=['cdm', 'dskd', 'emo', 'pkt', 'rkd', 'stella', 'talas'],
+        choices=['cdm', 'dskd', 'emo', 'ourmethod', 'pkt', 'rkd', 'stella', 'talas'],
         help='Distillation method to use'
     )
     
@@ -51,6 +52,12 @@ def parse_args():
         choices=['last_token', 'mean', 'cls'],
         default=None,
         help='Pooling used when caching teacher sentence embeddings'
+    )
+    parser.add_argument(
+        '--teacher_dtype',
+        choices=['float32', 'float16', 'bfloat16'],
+        default=None,
+        help='Dtype used to load the teacher model'
     )
     
     parser.add_argument(
@@ -125,6 +132,81 @@ def parse_args():
         choices=['single_cls', 'pair_cls', 'pair_reg'],
         default=None,
         help='Training task contract'
+    )
+    parser.add_argument(
+        '--base_student_model',
+        type=str,
+        default=None,
+        help='Frozen base student S0 for OurMethod (defaults to --student_model)'
+    )
+    parser.add_argument(
+        '--subspace_rank',
+        type=int,
+        default=None,
+        help='OurMethod: number of spectral components r'
+    )
+    parser.add_argument(
+        '--num_blocks',
+        type=int,
+        default=None,
+        help='OurMethod: number of latent blocks B'
+    )
+    parser.add_argument(
+        '--stability_margin',
+        type=float,
+        default=None,
+        help='OurMethod: teacher must beat base student by this stability margin delta'
+    )
+    parser.add_argument(
+        '--stability_tau',
+        type=float,
+        default=None,
+        help='OurMethod: sigmoid temperature for the gate'
+    )
+    parser.add_argument(
+        '--stability_view',
+        choices=['auto', 'dropout', 'augment'],
+        default=None,
+        help='OurMethod: how the two semantics-preserving views are produced'
+    )
+    parser.add_argument(
+        '--target_view',
+        choices=['text1', 'both'],
+        default=None,
+        help='OurMethod: which sentence sides receive a fused target'
+    )
+    parser.add_argument(
+        '--w_fusion',
+        type=float,
+        default=None,
+        help='OurMethod: weight lambda of the fusion loss'
+    )
+    parser.add_argument(
+        '--normalize_target',
+        action='store_true',
+        help='OurMethod: L2-normalize the fused target before the cosine loss'
+    )
+    parser.add_argument(
+        '--max_target_samples',
+        type=int,
+        default=None,
+        help='OurMethod: subsample the corpus used to estimate subspaces/gates'
+    )
+    parser.add_argument(
+        '--target_batch_size',
+        type=int,
+        default=None,
+        help='OurMethod: batch size used when building fused targets'
+    )
+    parser.add_argument(
+        '--force_recompute',
+        action='store_true',
+        help='OurMethod: rebuild fused targets even if the cache exists'
+    )
+    parser.add_argument(
+        '--no_diagnostics',
+        action='store_true',
+        help='OurMethod: skip saving diagnostic plots'
     )
     
     parser.add_argument(
@@ -206,6 +288,8 @@ def get_config(method: str, args):
         config = StellaConfig()
     elif method == 'talas':
         config = TALASConfig()
+    elif method == 'ourmethod':
+        config = OurMethodConfig()
     else:
         config = BaseConfig()
     
@@ -218,6 +302,8 @@ def get_config(method: str, args):
         config.teacher_model_name = args.teacher_model
     if args.teacher_pooling is not None:
         config.pooling_method = args.teacher_pooling
+    if args.teacher_dtype is not None:
+        config.teacher_dtype = args.teacher_dtype
     
     if args.batch_size is not None:
         config.batch_size = args.batch_size
@@ -246,6 +332,32 @@ def get_config(method: str, args):
         config.angle_ratio = args.angle_ratio
     if args.task_type is not None:
         config.task_type = args.task_type
+    if args.base_student_model is not None:
+        config.base_student_model_name = args.base_student_model
+    if args.subspace_rank is not None:
+        config.subspace_rank = args.subspace_rank
+    if args.num_blocks is not None:
+        config.num_blocks = args.num_blocks
+    if args.stability_margin is not None:
+        config.stability_margin = args.stability_margin
+    if args.stability_tau is not None:
+        config.stability_tau = args.stability_tau
+    if args.stability_view is not None:
+        config.stability_view = args.stability_view
+    if args.target_view is not None:
+        config.target_view = args.target_view
+    if args.w_fusion is not None:
+        config.w_fusion = args.w_fusion
+    if args.normalize_target:
+        config.normalize_target = True
+    if args.max_target_samples is not None:
+        config.max_target_samples = args.max_target_samples
+    if args.target_batch_size is not None:
+        config.target_batch_size = args.target_batch_size
+    if args.force_recompute:
+        config.force_recompute = True
+    if args.no_diagnostics:
+        config.diagnostics = False
     
     if args.save_dir is not None:
         config.save_dir = args.save_dir

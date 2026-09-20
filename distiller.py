@@ -39,6 +39,7 @@ from src.cache_teacher import cache_teacher_embeddings, load_cached_embeddings
 from src.criterions.contextual_dynamic_mapping import ContextualDynamicMapping
 from src.criterions.dual_space_kd import DualSpaceKD
 from src.criterions.emo_embedding_distillation import EMODistillation
+from src.criterions.our_method import OurMethodDistillation
 from src.criterions.probabilistic_kt import ProbabilisticKT
 from src.criterions.relational_kd import RelationalKD
 from src.criterions.stella_distillation import (
@@ -49,9 +50,13 @@ from src.criterions.stella_distillation import (
 from src.criterions.teacher_anchor_kd import TeacherAnchorKD
 from src.data_utils import DualTokenizerCollate, TextPairRaw
 from src.data_utils.dataset_cache import (
+    DualTokenizerCollateWithFusionTarget,
     DualTokenizerCollateWithTeacher,
+    TextPairWithFusionTarget,
     TextPairWithTeacher,
 )
+from src.diagnostics import save_ourmethod_diagnostics
+from src.our_method_target import OurMethodTargetBuilder
 
 from src.evaluation.evaluation_automodel import (
     eval_classification_task,
@@ -223,6 +228,19 @@ class KnowledgeDistiller:
                 f"w_task={config.w_task}, dist_ratio={config.dist_ratio}, "
                 f"angle_ratio={config.angle_ratio}"
             )
+        elif config.distill_method == "ourmethod":
+            # The fused target is precomputed and cached, so the criterion holds
+            # no parameters and only combines the base loss with the fusion loss.
+            self.criterion = OurMethodDistillation(
+                w_task=config.w_task,
+                w_fusion=config.w_fusion,
+                normalize_target=getattr(config, "normalize_target", False),
+            )
+            print(
+                "OurMethod criterion initialized: "
+                f"w_task={config.w_task}, w_fusion={config.w_fusion}, "
+                f"rank={config.subspace_rank}, blocks={config.num_blocks}"
+            )
         else:
             self.criterion = None
 
@@ -297,6 +315,17 @@ class KnowledgeDistiller:
     def setup_models(self):
         cfg = self.config
 
+        # OurMethod starts the trainable student from the frozen base student
+        # S0, so both are loaded from the same checkpoint.
+        self.base_student_model_name = None
+        if cfg.distill_method == "ourmethod":
+            self.base_student_model_name = (
+                getattr(cfg, "base_student_model_name", None) or cfg.student_model_name
+            )
+            student_model_name = self.base_student_model_name
+        else:
+            student_model_name = cfg.student_model_name
+
         print("Loading tokenizers...")
         tokenizer_kwargs = {"use_fast": True}
         self.tok_student = AutoTokenizer.from_pretrained(
@@ -320,7 +349,7 @@ class KnowledgeDistiller:
             )
             self.current_stage = 1
         else:
-            print(f"Loading student model: {cfg.student_model_name}")
+            print(f"Loading student model: {student_model_name}")
             student_kwargs = {}
             student_dtype_name = getattr(cfg, "student_dtype", None)
             student_dtypes = {
@@ -353,9 +382,10 @@ class KnowledgeDistiller:
                     "(required for output_attentions)"
                 )
             self.model_student = AutoModel.from_pretrained(
-                cfg.student_model_name,
+                student_model_name,
                 **student_kwargs,
             )
+            self._student_load_kwargs = student_kwargs
 
         print(f"Loading teacher model: {cfg.teacher_model_name}")
         teacher_kwargs = {"trust_remote_code": True}
@@ -378,6 +408,19 @@ class KnowledgeDistiller:
 
         self.model_student.to(self.device_s)
         self.model_teacher.to(self.device_t)
+
+        if cfg.distill_method == "ourmethod":
+            print(f"Loading frozen base student S0: {self.base_student_model_name}")
+            self.model_base = AutoModel.from_pretrained(
+                self.base_student_model_name,
+                **getattr(self, "_student_load_kwargs", {}),
+            )
+            self.model_base.to(self.device_s)
+            self.model_base.eval()
+            for p in self.model_base.parameters():
+                p.requires_grad_(False)
+        else:
+            self.model_base = None
 
         student_dtype = next(self.model_student.parameters()).dtype
         print(f"Student training dtype: {student_dtype}")
@@ -477,6 +520,51 @@ class KnowledgeDistiller:
             self.train_ds = TextPairWithTeacher(df, cfg.task_type, teacher_cls_list)
             self.collate_fn = DualTokenizerCollateWithTeacher(
                 self.tok_student, cfg.task_type, cfg.max_length
+            )
+        elif cfg.distill_method == "ourmethod":
+            # Both frozen models are run over the corpus once to build the fused
+            # target. Every stage is cached; a rerun only loads the cache.
+            raw_ds = TextPairRaw(df, cfg.task_type)
+            raw_collate = DualTokenizerCollate(
+                self.tok_student,
+                self.tok_teacher,
+                cfg.task_type,
+                cfg.max_length,
+            )
+            raw_loader = DataLoader(
+                raw_ds,
+                batch_size=getattr(cfg, "target_batch_size", 256),
+                shuffle=False,
+                collate_fn=raw_collate,
+                num_workers=0,
+            )
+            builder = OurMethodTargetBuilder(
+                model_teacher=self.model_teacher,
+                model_base=self.model_base,
+                device_s=self.device_s,
+                device_t=self.device_t,
+                config=cfg,
+                mask_token_ids={
+                    "stu": self.tok_student.mask_token_id or 0,
+                    "tea": self.tok_teacher.mask_token_id or 0,
+                },
+            )
+            fused = builder.load_or_build(raw_loader, len(df))
+            self.fused_targets = fused.targets
+            self.fused_diagnostics = fused.diagnostics
+            self.fused_num_sides = fused.num_sides
+            self.fused_slices = fused.slices
+            print(
+                f"[OurMethod] fused targets: shape={tuple(fused.targets.shape)}, "
+                f"sides={fused.num_sides}, rank={fused.rank}"
+            )
+
+            self.train_ds = TextPairWithFusionTarget(df, cfg.task_type, fused.targets)
+            self.collate_fn = DualTokenizerCollateWithFusionTarget(
+                self.tok_student,
+                cfg.task_type,
+                cfg.max_length,
+                fused.num_sides,
             )
         else:
             # Standard distillation methods
@@ -618,6 +706,16 @@ class KnowledgeDistiller:
 
         loss, _ = info_nce(student_cls1, student_cls2, temperature=cfg.temperature)
         return loss, {}
+
+    def _grad_norm(self) -> float:
+        norms = [
+            parameter.grad.detach().norm()
+            for parameter in self.model_student.parameters()
+            if parameter.grad is not None
+        ]
+        if not norms:
+            return 0.0
+        return float(torch.stack(norms).norm())
 
     def train_step(self, batch: dict) -> tuple[torch.Tensor, dict]:
         cfg = self.config
@@ -809,6 +907,69 @@ class KnowledgeDistiller:
             del student_outputs, student_outputs_2
 
             return loss, metrics
+
+        if method == "ourmethod":
+            batch_s = {}
+            for k, v in batch.items():
+                if not torch.is_tensor(v):
+                    continue
+                if k.endswith("_stu") or k == "labels" or k.startswith("target"):
+                    batch_s[k] = v.to(self.device_s, non_blocking=True)
+
+            with autocast("cuda", enabled=torch.cuda.is_available()):
+                s_out1 = self.model_student(
+                    input_ids=batch_s["input_ids1_stu"],
+                    attention_mask=batch_s["attention_mask1_stu"],
+                    return_dict=True,
+                )
+                S_cls1 = s_out1.last_hidden_state[:, 0, :]
+
+                S_cls2 = None
+                if "input_ids2_stu" in batch_s:
+                    s_out2 = self.model_student(
+                        input_ids=batch_s["input_ids2_stu"],
+                        attention_mask=batch_s["attention_mask2_stu"],
+                        return_dict=True,
+                    )
+                    S_cls2 = s_out2.last_hidden_state[:, 0, :]
+
+                if S_cls2 is None:
+                    loss_task = torch.zeros(
+                        (), device=S_cls1.device, dtype=S_cls1.dtype
+                    )
+                else:
+                    loss_task, _ = info_nce(
+                        S_cls1, S_cls2, temperature=cfg.temperature
+                    )
+
+                extra_pairs = ()
+                if "target2" in batch_s and S_cls2 is not None:
+                    extra_pairs = ((S_cls2, batch_s["target2"]),)
+
+                loss, metrics = self.criterion(
+                    S_cls1,
+                    batch_s["target1"],
+                    loss_task,
+                    extra_pairs=extra_pairs,
+                )
+                loss = loss.float()
+
+            self.scaler.scale(loss).backward()
+            self.scaler.unscale_(self.optimizer)
+            if not grads_are_finite(self.optimizer):
+                self.optimizer.zero_grad(set_to_none=True)
+                self.scaler.update()
+                return loss, {**metrics, "skip": "grad_inf"}
+            grad_norm = self._grad_norm()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+            self.scheduler.step()
+
+            return loss, {
+                **metrics,
+                "grad_norm": grad_norm,
+                "lr": float(self.optimizer.param_groups[0]["lr"]),
+            }
 
         # Standard distillation methods with teacher inference
         batch_s, batch_t = {}, {}
@@ -1659,6 +1820,28 @@ class KnowledgeDistiller:
             print(f"Batch size: {cfg.batch_size}")
             print(f"Learning rate: {cfg.learning_rate}")
             print("=" * 60 + "\n")
+
+            if getattr(self, "fused_diagnostics", None) is not None:
+                from src.diagnostics import flatten_ourmethod_diagnostics
+
+                flat = flatten_ourmethod_diagnostics(self.fused_diagnostics)
+                if getattr(self, "use_wandb", False) and WANDB_AVAILABLE:
+                    wandb.log(flat, step=self.global_step)
+                self.log_experiment_record({"ourmethod_diagnostics": flat})
+                if getattr(cfg, "diagnostics", True) and cfg.save_dir:
+                    output_dir = (
+                        getattr(cfg, "diagnostics_dir", None)
+                        or os.path.join(cfg.save_dir, "diagnostics")
+                    )
+                    try:
+                        paths = save_ourmethod_diagnostics(
+                            self.fused_diagnostics, output_dir
+                        )
+                        print(f"[OurMethod] diagnostics saved to {output_dir}")
+                        for path in paths:
+                            print(f"  {path}")
+                    except Exception as e:
+                        print(f"Warning: could not save diagnostics: {e}")
 
             for epoch in range(cfg.epochs):
                 avg_loss = self.train_epoch(epoch)

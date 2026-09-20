@@ -11,13 +11,23 @@ from config import (
     CDMConfig,
     DSKDConfig,
     EMOConfig,
+    OurMethodConfig,
     PKTConfig,
     RKDConfig,
     StellaConfig,
     TALASConfig,
 )
 
-ALL_CONFIGS = [CDMConfig, DSKDConfig, EMOConfig, PKTConfig, RKDConfig, StellaConfig, TALASConfig]
+ALL_CONFIGS = [
+    CDMConfig,
+    DSKDConfig,
+    EMOConfig,
+    OurMethodConfig,
+    PKTConfig,
+    RKDConfig,
+    StellaConfig,
+    TALASConfig,
+]
 
 
 @pytest.mark.parametrize("config_cls", ALL_CONFIGS)
@@ -86,3 +96,18 @@ def test_rkd_paper_ratios():
     assert config.dist_ratio == 1.0
     assert config.angle_ratio == 2.0
     assert config.huber_delta == 1.0
+
+
+def test_ourmethod_defaults():
+    config = OurMethodConfig()
+
+    assert config.subspace_rank == 64
+    assert config.num_blocks == 8
+    assert config.stability_margin == 0.05
+    assert config.stability_tau == 0.05
+    assert config.stability_view == "auto"
+    assert config.target_view == "both"
+    assert config.w_fusion == 1.0
+    assert config.base_student_model_name is None
+    assert config.force_recompute is False
+    assert config.diagnostics is True
