@@ -1,12 +1,17 @@
-Write-Host "======================================"
-Write-Host "Training with EMO method"
-Write-Host "======================================"
+$ErrorActionPreference = "Stop"
+
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+Set-Location $RepoRoot
 
 $env:CUDA_VISIBLE_DEVICES = "0,1"
 $env:TOKENIZERS_PARALLELISM = "false"
 
+Write-Host "======================================"
+Write-Host "Training with EMO method"
+Write-Host "======================================"
+
 $METHOD = "emo"
-$TRAIN_DATA = "..\data\test_debug.csv"
+$TRAIN_DATA = "data\train_set\merged_3_data_5k_each.csv"
 $STUDENT_MODEL="..\model_hub\MiniLMv2-L6-H384-distilled-from-BERT-Base\MiniLM-L6-H384-distilled-from-BERT-Base"
 $TEACHER_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 $BATCH_SIZE = 4
@@ -15,7 +20,7 @@ $LR = 1e-5
 $MAX_LENGTH = 256
 $SAVE_DIR = "checkpoints/emo"
 
-python ../main.py `
+python main.py `
     --method $METHOD `
     --train_data $TRAIN_DATA `
     --student_model $STUDENT_MODEL `

@@ -125,8 +125,9 @@ python3 main.py --method talas \
   --weights_dir "/content/drive/MyDrive/[ICLR] Embedding KD/weights/qwen3_4b_to_bert_base"
 ```
 
-`test_mdd.ipynb` is the Colab runner: it trains several teacher/student pairs
-sequentially and writes per-pair logs, tables and figures to Google Drive.
+`scripts/train_<method>.sh` and `scripts/train_<method>.ps1` set the per-method
+defaults from the table above. Each script locates the repo root from its own
+path, so it can be launched from any working directory.
 
 ## Outputs
 

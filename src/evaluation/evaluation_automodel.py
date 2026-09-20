@@ -152,31 +152,6 @@ class STSDataset(Dataset):
         }
 
 
-def collate_fn(batch, tokenizer, max_len=128):
-    s1_list = [item["sentence1"] for item in batch]
-    s2_list = [item["sentence2"] for item in batch]
-    labels = torch.stack([item["label"] for item in batch])
-
-    enc1 = tokenizer(
-        s1_list,
-        truncation=True,
-        padding=True,  # chỉ pad theo câu dài nhất trong batch
-        max_length=max_len,
-        return_tensors="pt",
-    )
-    enc2 = tokenizer(
-        s2_list, truncation=True, padding=True, max_length=max_len, return_tensors="pt"
-    )
-
-    return {
-        "input_ids1": enc1["input_ids"],
-        "attention_mask1": enc1["attention_mask"],
-        "input_ids2": enc2["input_ids"],
-        "attention_mask2": enc2["attention_mask"],
-        "labels": labels,
-    }
-
-
 def eval_sts(model, tokenizer, path):
     dataset = STSDataset(path)
     emb1 = _embed_texts(model, tokenizer, dataset.sentence1, 128, desc="sts s1")
@@ -264,25 +239,6 @@ def _validate_classification_pair(train_path, eval_path):
             RuntimeWarning,
             stacklevel=2,
         )
-
-
-def clf_collate_fn(batch, tokenizer, max_len=512):
-    s1_list = [item["text"] for item in batch]
-    labels = torch.stack([item["label"] for item in batch])
-
-    enc1 = tokenizer(
-        s1_list,
-        truncation=True,
-        padding=True,  # chỉ pad theo câu dài nhất trong batch
-        max_length=max_len,
-        return_tensors="pt",
-    )
-
-    return {
-        "input_ids1": enc1["input_ids"],
-        "attention_mask1": enc1["attention_mask"],
-        "labels": labels,
-    }
 
 
 def eval_classification_task(model, path_list, tokenizer):

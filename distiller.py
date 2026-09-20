@@ -53,7 +53,6 @@ from src.data_utils.dataset_cache import (
     TextPairWithTeacher,
 )
 
-# Use evaluation_automodel for AutoModel (not evaluation_model_define which is for Stella)
 from src.evaluation.evaluation_automodel import (
     eval_classification_task,
     eval_cls_tasks,
@@ -786,11 +785,6 @@ class KnowledgeDistiller:
 
                 loss_2 = loss_2.float()
 
-            # Check loss_2 is finite
-            if not is_finite(loss_2):
-                raise RuntimeError("loss_2 NaN/Inf")
-
-            # Check loss_2 finite before backward
             if not is_finite(loss_2):
                 raise RuntimeError(
                     f"loss_2 NaN/Inf at epoch={self.current_epoch} step={self.current_step}"
@@ -1613,14 +1607,6 @@ class KnowledgeDistiller:
                 print("=" * 60)
 
                 try:
-                    # from src.evaluation.evaluation_model_define import (
-                    #     eval_classification_task,
-                    #     eval_pair_task,
-                    #     eval_sts_task,
-                    #     test_cls_tasks,
-                    #     test_pair_tasks,
-                    #     test_sts_tasks
-                    # )
                     validation_results = self.evaluate("validation")
                 except Exception as e:
                     print(f"Warning: Evaluation failed with error: {e}")

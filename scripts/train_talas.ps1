@@ -1,12 +1,17 @@
-Write-Host "======================================"
-Write-Host "Training with TALAS method"
-Write-Host "======================================"
+$ErrorActionPreference = "Stop"
+
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+Set-Location $RepoRoot
 
 $env:CUDA_VISIBLE_DEVICES = "0,1"
 $env:TOKENIZERS_PARALLELISM = "false"
 
+Write-Host "======================================"
+Write-Host "Training with TALAS method"
+Write-Host "======================================"
+
 $METHOD = "talas"
-$TRAIN_DATA = "..\data\test_debug.csv"
+$TRAIN_DATA = "data\train_set\merged_3_data_5k_each.csv"
 $STUDENT_MODEL = "..\model_hub\MiniLMv2-L6-H384-distilled-from-BERT-Base\MiniLM-L6-H384-distilled-from-BERT-Base"
 $TEACHER_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 $BATCH_SIZE = 32
@@ -15,7 +20,7 @@ $LR = 2e-5
 $MAX_LENGTH = 256
 $SAVE_DIR = "checkpoints/talas"
 
-python ../main.py `
+python main.py `
     --method $METHOD `
     --train_data $TRAIN_DATA `
     --student_model $STUDENT_MODEL `
@@ -25,3 +30,7 @@ python ../main.py `
     --lr $LR `
     --max_length $MAX_LENGTH `
     --save_dir $SAVE_DIR
+
+Write-Host "======================================"
+Write-Host "Training completed!"
+Write-Host "======================================"

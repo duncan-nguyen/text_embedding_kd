@@ -33,12 +33,6 @@ def parse_args():
         default=None,
         help='Path to training data CSV file'
     )
-    parser.add_argument(
-        '--eval_data',
-        type=str,
-        default=None,
-        help='Path to evaluation data CSV file'
-    )
     
     parser.add_argument(
         '--student_model',
@@ -217,8 +211,6 @@ def get_config(method: str, args):
     
     if args.train_data is not None:
         config.train_data_path = args.train_data
-    if args.eval_data is not None:
-        config.eval_data_path = args.eval_data
     
     if args.student_model is not None:
         config.student_model_name = args.student_model

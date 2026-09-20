@@ -22,7 +22,6 @@ class BaseConfig:
     teacher_special_token = "_"
     
     train_data_path = "data/train_set/merged_3_data_5k_each.csv"
-    eval_data_path = None
     num_workers = 2
     
     distill_method = "cdm"
@@ -33,7 +32,6 @@ class BaseConfig:
     save_best = True
     
     debug_align = False
-    evaluate_test_each_epoch = False
     eval_every = 1
     
     seed = 42

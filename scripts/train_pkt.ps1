@@ -1,12 +1,17 @@
-Write-Host "======================================"
-Write-Host "Training with PKT method"
-Write-Host "======================================"
+$ErrorActionPreference = "Stop"
+
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+Set-Location $RepoRoot
 
 $env:CUDA_VISIBLE_DEVICES = "0,1"
 $env:TOKENIZERS_PARALLELISM = "false"
 
+Write-Host "======================================"
+Write-Host "Training with PKT method"
+Write-Host "======================================"
+
 $METHOD = "pkt"
-$TRAIN_DATA = "..\data\train_set\merged_3_data_5k_each.csv"
+$TRAIN_DATA = "data\train_set\merged_3_data_5k_each.csv"
 $STUDENT_MODEL = "google-bert/bert-base-uncased"
 $TEACHER_MODEL = "Qwen/Qwen3-Embedding-4B"
 $BATCH_SIZE = 32
@@ -17,7 +22,7 @@ $SAVE_DIR = "checkpoints/pkt"
 
 # Passalis & Tefas transfer without a supervised term (their loop defaults to
 # supervised_weight=0), so w_task stays at 0 here.
-python ../main.py `
+python main.py `
     --method $METHOD `
     --train_data $TRAIN_DATA `
     --student_model $STUDENT_MODEL `
