@@ -954,6 +954,11 @@ class KnowledgeDistiller:
                 )
                 loss = loss.float()
 
+            if not is_finite(loss):
+                self.optimizer.zero_grad(set_to_none=True)
+                self.scaler.update()
+                return loss, {**metrics, "skip": "loss_nonfinite"}
+
             self.scaler.scale(loss).backward()
             self.scaler.unscale_(self.optimizer)
             if not grads_are_finite(self.optimizer):

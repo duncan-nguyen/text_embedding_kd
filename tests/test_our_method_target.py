@@ -118,6 +118,16 @@ def test_auto_view_mode_prefers_dropout_and_falls_back_to_augment(tmp_path):
     assert _builder(config, without_dropout).base_view_mode == "augment"
 
 
+def test_auto_view_mode_is_shared_when_models_differ(tmp_path):
+    config = _config(tmp_path, stability_view="auto")
+    teacher = _FakeEncoder(vocab=20, dim=8, dropout=0.2)
+    base = _FakeEncoder(vocab=20, dim=8, dropout=0.0)
+
+    builder = _builder(config, teacher, base)
+
+    assert builder.teacher_view_mode == builder.base_view_mode == "augment"
+
+
 def test_num_blocks_above_rank_is_rejected(tmp_path):
     config = _config(tmp_path, subspace_rank=3, num_blocks=4)
 

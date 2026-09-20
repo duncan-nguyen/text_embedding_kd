@@ -89,7 +89,10 @@ trainable student) are embedded over the corpus; their top-`r` spectral
 subspaces are aligned with orthogonal Procrustes, the teacher is admitted only
 on blocks where it is more stable across two dropout views (linear CKA), and the
 fused target `H* = H0 + (Z~T - Z0) G U0^T` trains the student with a cosine loss
-on top of the usual `info_nce` base objective. Because `T` and `S0` are frozen,
+on top of the usual `info_nce` base objective. The student is loaded in float32
+(`student_dtype`) even when the checkpoint is stored in float16, because fp16
+student weights make `GradScaler.unscale_` fail and the optimizer unstable.
+Because `T` and `S0` are frozen,
 every stage is computed once and cached (`--cache_path`), so a rerun only loads
 the cache. The offline statistics are logged under `subspace/`, `alignment/`,
 `stability/`, `gate/` and `target/`, and the diagnostic plots land in

@@ -7,6 +7,7 @@ class OurMethodConfig(BaseConfig):
 
     student_model_name = "bert-base-uncased"
     base_student_model_name = None
+    student_dtype = "float32"
     teacher_model_name = "Qwen/Qwen3-Embedding-0.6B"
     teacher_dtype = "bfloat16"
 

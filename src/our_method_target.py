@@ -100,22 +100,23 @@ class OurMethodTargetBuilder:
         self.cache_path = str(config.cache_path)
         self._mask_token_ids = dict(mask_token_ids or {})
 
-        self.teacher_view_mode = self._resolve_view_mode(model_teacher)
-        self.base_view_mode = self._resolve_view_mode(model_base)
+        # Teacher and base student must use the *same* view mechanism, otherwise
+        # the two CKA scores are not comparable and the gate is biased.
+        self.teacher_view_mode = self.base_view_mode = self._resolve_view_mode()
 
     # ------------------------------------------------------------------
     # cache helpers
     # ------------------------------------------------------------------
 
-    def _resolve_view_mode(self, model: nn.Module) -> str:
+    def _resolve_view_mode(self) -> str:
         requested = getattr(self.config, "stability_view", "auto")
         if requested in ("dropout", "augment"):
             return requested
-        if _has_dropout(model):
+        if _has_dropout(self.model_teacher) and _has_dropout(self.model_base):
             return "dropout"
         print(
-            "[OurMethod] No dropout found in a frozen model; using token-masking "
-            "augmentation as the stability view."
+            "[OurMethod] Dropout is absent in at least one frozen model; using "
+            "token-masking augmentation as the shared stability view."
         )
         return "augment"
 
